@@ -54,6 +54,13 @@
             };
             launchOptions[UIApplicationLaunchOptionsUserActivityDictionaryKey] = userActivityDictionary;
         }
+
+        NSURL *url = connectionOptions.URLContexts.anyObject.URL;
+        if (url != nil) {
+          // Log the URL to the console
+          NSLog(@"<<<FM>>> URL: %@", url.absoluteString);
+          launchOptions[UIApplicationLaunchOptionsURLKey] = url;
+        }
     }
 
     return launchOptions;

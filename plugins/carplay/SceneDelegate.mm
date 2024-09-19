@@ -40,4 +40,20 @@
   }
 }
 
+- (void)scene:(UIScene *)scene continueUserActivity:(NSUserActivity *)userActivity {
+  AppDelegate *appDelegate = (AppDelegate *)[[UIApplication sharedApplication] delegate];
+  [appDelegate application:[UIApplication sharedApplication] continueUserActivity:userActivity restorationHandler:^(NSArray<id<UIUserActivityRestoring>> * _Nullable restorableObjects) {
+    // Handle restoration here if needed
+  }];
+}
+
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
+  UIOpenURLContext *context = [URLContexts anyObject];
+  if (context) {
+    NSURL *url = context.URL;
+    AppDelegate *appDelegate = (AppDelegate *)[[UIApplication sharedApplication] delegate];
+    [appDelegate application:[UIApplication sharedApplication] openURL:url options:@{}];
+  }
+}
+
 @end
