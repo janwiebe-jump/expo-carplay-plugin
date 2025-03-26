@@ -3,6 +3,7 @@
 import {
     ConfigPlugin,
     IOSConfig,
+    AndroidConfig,
     XcodeProject,
     createRunOncePlugin,
     withDangerousMod,
@@ -10,25 +11,27 @@ import {
     withInfoPlist,
     withXcodeProject,
   } from 'expo/config-plugins';
-  
+
   import * as fs from 'fs/promises';
   import * as path from 'path';
-  
+
   let xcodeProjectName = '';
-  
-  export const withCarPlay: ConfigPlugin = config => {  
+
+  export const withCarPlay: ConfigPlugin = config => {
     xcodeProjectName = config.name;
-  
+
     config = withCarPlayAppDelegateHeader(config);
     config = withCarPlayAppDelegate(config);
     config = withCarPlayInfoPlist(config);
     config = withCarPlayEntitlements(config);
-  
+    config = withAndroidManifestMetaData(config);
+    config = withAndroidAutoFiles(config);
+
     config = withCarPlayScenesFiles(config);
     config = withCarPlayScenesInProject(config);
     return config;
   };
-  
+
   export const withCarPlayAppDelegate: ConfigPlugin = config => {
     return withDangerousMod(config, [
       'ios',
@@ -45,33 +48,76 @@ import {
       },
     ]);
   };
-  
+
   export const withCarPlayAppDelegateHeader: ConfigPlugin = config => {
     return withDangerousMod(config, [
       'ios',
       async config => {
         const headerFilePath = IOSConfig.Paths.getAppDelegateHeaderFilePath(config.modRequest.projectRoot);
         let contents = await fs.readFile(headerFilePath, 'utf-8');
-  
+
         contents = await modifyHeaderFile(config.modRequest.projectRoot, contents);
-  
+
         await fs.writeFile(headerFilePath, contents);
         return config;
       },
     ]);
   };
-  
+
+
+  export const withAndroidAutoFiles: ConfigPlugin = config => {
+    return withDangerousMod(config, [
+      'android',
+      async config => {
+        const fileInfo = "/android/app/src/main/res/xml/automotive_app_desc.xml";
+
+        const headerFilePath = config.modRequest.projectRoot;
+        const fullFilePath = path.join(headerFilePath, fileInfo);
+
+        const contents = `<?xml version="1.0" encoding="utf-8"?>
+        <automotiveApp>
+          <uses name="template" />
+        </automotiveApp>`;
+        const dirPath = path.dirname(fullFilePath);
+        await fs.mkdir(dirPath, { recursive: true });
+        await fs.writeFile(fullFilePath, contents);
+        return config;
+      },
+    ]);
+  };
+
+  const { withAndroidManifest } = require('@expo/config-plugins');
+
+  const withAndroidManifestMetaData: ConfigPlugin = config => {
+    return withAndroidManifest(config, async (config: { modResults: { manifest: any; }; }) => {
+      const androidManifest = config.modResults.manifest;
+
+      const applicationElement = androidManifest['application'][0];
+      applicationElement['meta-data'] = [
+        ...(applicationElement['meta-data'] || []),
+        {
+          $: {
+            'android:name': 'com.google.android.gms.car.application',
+            'android:resource': '@xml/automotive_app_desc',
+          },
+        },
+      ];
+
+      return config;
+    });
+  };
+
   const withCarPlayEntitlements: ConfigPlugin = config => {
     return withEntitlementsPlist(config, config => {
       config.modResults['com.apple.developer.carplay-audio'] = true;
       return config;
     });
   };
-  
+
   export const withCarPlayInfoPlist: ConfigPlugin = config => {
     return withInfoPlist(config, async config => {
       const xcodeProject = config.modResults;
-  
+
       // Multiple scenes
       xcodeProject.UIApplicationSceneManifest = {
         UIApplicationSupportsMultipleScenes: false,
@@ -92,31 +138,31 @@ import {
           ],
         },
       };
-  
+
       return config;
     });
   };
-  
+
   const withCarPlayScenesInProject: ConfigPlugin = config => {
     return withXcodeProject(config, async config => {
       addSourceFileToProject(config.modResults, xcodeProjectName + '/CarSceneDelegate.h');
       addSourceFileToProject(config.modResults, xcodeProjectName + '/CarSceneDelegate.mm');
-  
+
       addSourceFileToProject(config.modResults, xcodeProjectName + '/SceneDelegate.h');
       addSourceFileToProject(config.modResults, xcodeProjectName + '/SceneDelegate.mm');
-  
+
       return config;
     });
   };
-  
+
   const withCarPlayScenesFiles: ConfigPlugin = config => {
     return withDangerousMod(config, [
       'ios',
       async config => {
         const projectPath = IOSConfig.Paths.getAppDelegateHeaderFilePath(config.modRequest.projectRoot);
-  
+
         const dir = path.dirname(projectPath);
-  
+
         fs.copyFile(
           config.modRequest.projectRoot + '/plugins/carplay/CarSceneDelegate.h',
           path.join(dir, 'CarSceneDelegate.h'),
@@ -133,52 +179,52 @@ import {
           config.modRequest.projectRoot + '/plugins/carplay/SceneDelegate.mm',
           path.join(dir, 'SceneDelegate.mm'),
         );
-  
+
         return config;
       },
     ]);
   };
-  
+
   const modifyHeaderFile = async (projectRoot: string, contents: string): Promise<string> => {
     const addedContents = await getFileContents(projectRoot, 'AppDelegate.add.h');
-  
+
     contents = contents.replace(/@interface AppDelegate\s?:\s?EXAppDelegateWrapper?/, (_a, _b) => addedContents);
-  
+
     return contents;
   };
-  
+
   const modifySourceFile = async (projectRoot: string, contents: string): Promise<string> => {
     // update imports
     const imports = await getFileContents(projectRoot, 'AppDelegate.imports.mm');
-  
+
     contents = imports + contents;
-  
+
     const newAppDelegateMethods = await getFileContents(projectRoot, 'AppDelegate.endMethods.mm');
-  
+
     // Extra method at the end!
     contents = contents.replace(/@end/, newAppDelegateMethods + '\n@end');
-  
+
     const topAppDelegateMethods = await getFileContents(projectRoot, 'AppDelegate.topMethods.mm');
     // add extra methods at the top:
     contents = contents.replace(/@implementation AppDelegate/, topAppDelegateMethods);
-  
+
     contents = contents.replace(
       'return [super application:application didFinishLaunchingWithOptions:launchOptions];',
       'return YES;',
     );
-  
+
     return contents;
   };
-  
+
   const getFileContents = async (projectRoot: string, fileName: string): Promise<string> => {
     return await fs.readFile(projectRoot + '/plugins/carplay/' + fileName, 'utf-8');
   };
-  
+
   const addSourceFileToProject = (proj: XcodeProject, file: string) => {
     const targetUuid = proj.findTargetKey(xcodeProjectName);
-  
+
     const groupUuid = proj.findPBXGroupKey({ name: xcodeProjectName });
-  
+
     if (!targetUuid) {
       console.error(`Failed to find "${xcodeProjectName}" target!`);
       return;
@@ -187,7 +233,7 @@ import {
       console.error(`Failed to find "${xcodeProjectName}" group!`);
       return;
     }
-  
+
     proj.addSourceFile(
       file,
       {
@@ -196,14 +242,14 @@ import {
       groupUuid,
     );
   };
-  
+
   const withCarPlayPlugin: ConfigPlugin = config => {
     config = withCarPlay(config);
-  
+
     // Return the modified config.
     return config;
   };
-  
+
   const pkg = {
     // Prevent this plugin from being run more than once.
     name: '@zetland/react-native-carplay',
@@ -211,6 +257,5 @@ import {
     // and might not work with the latest version of that module.
     version: 'UNVERSIONED',
   };
-  
+
   export default createRunOncePlugin(withCarPlayPlugin, pkg.name, pkg.version);
-  
